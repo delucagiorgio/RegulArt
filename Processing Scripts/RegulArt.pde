@@ -116,8 +116,8 @@ void draw(){
       availableSpots.add(temp_p.spotId);
       particles.remove(temp_p);
     }else{
-      int x_cam = int(map(temp_p.location.x, width, 0, 0, cam_w));
-      int y_cam = int(map(temp_p.location.y, 0, height, 0, cam_h));
+      int x_cam = constrain(int(map(temp_p.location.x, width, 0, 0, cam_w)), 0, cam_w - 1);
+      int y_cam = constrain(int(map(temp_p.location.y, 0, height, 0, cam_h)), 0, cam_h - 1);
       // aggiorna il colore della particella alla posizione corrente 
       // della stessa rispetto alle informazioni del webcam
       temp_p.c = cam.pixels[x_cam + y_cam * cam_w];

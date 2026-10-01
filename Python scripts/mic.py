@@ -109,7 +109,8 @@ def spectral_flux(magnitude_spectrum):
     # convert to frequency domain
     timebins, freqbins = np.shape(magnitude_spectrum)
 
-    sf = np.sqrt(np.sum(np.diff(np.abs(magnitude_spectrum))**2, axis=1)) / freqbins
+    # differenza tra frame temporali consecutivi, sommata su tutte le frequenze
+    sf = np.sqrt(np.sum(np.diff(np.abs(magnitude_spectrum), axis=0)**2, axis=1)) / freqbins
 
     return np.nan_to_num(sf[1:][0])
 
@@ -121,7 +122,8 @@ def norm_corr(a, filt_data):
     return c[0][1]
 
 def compute(data, bp_b, bp_a):
-    signal_sftf = stft(data, CHUNK)[2];
+    # stft restituisce Zxx con forma (freq, tempo): la trasponiamo in (tempo, freq)
+    signal_sftf = stft(data, fs=RATE)[2].T
     zcr = zero_crossing_rate(data)
     rms = root_mean_square(data)
     sc = spectral_centroid(signal_sftf)

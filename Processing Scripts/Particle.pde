@@ -88,7 +88,7 @@ class Particle{
     
     for(Particle p : particles){
       float dist = PVector.dist(location,p.location);
-      if(!this.equals(p) && dist > neighDist){
+      if(!this.equals(p) && dist < neighDist){
         sum.add(p.location);
         count++;
       }
@@ -311,6 +311,7 @@ class Particle{
   
   //Crea tutti i vertici della da disegnare
   private void createAllVertex(){
+    vertexList.clear();
     for(int i = 0; i < numberOfVertex; i++){
       float x = location.x;
       float y = location.y;
@@ -343,6 +344,7 @@ class Particle{
   }
   
   void createAllVelocityVertex(){
+    velocityVertexList.clear();
     for(int i = 0; i < numberOfVertex; i++){
       velocityVertexList.add(new PVector(0,0));  
     }
