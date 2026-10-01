@@ -81,12 +81,12 @@ class Particle{
   }
   
   //crea una forza relativa alla coesione del particle system
-  PVector cohesion(){
+  PVector cohesion(List<Particle> neighbors){
     float neighDist = 50;
     PVector sum = new PVector(0,0);
     int count = 0;
     
-    for(Particle p : particles){
+    for(Particle p : neighbors){
       float dist = PVector.dist(location,p.location);
       if(!this.equals(p) && dist < neighDist){
         sum.add(p.location);
@@ -103,11 +103,11 @@ class Particle{
   }
   
   // crea una forza relativa all'allineamento del particle system 
-  PVector align () {
+  PVector align (List<Particle> neighbors) {
     float neighbordist = 25.0;
     PVector steer = new PVector();
     int count = 0;
-    for (Particle other : particles) {
+    for (Particle other : neighbors) {
       float d = PVector.dist(location,other.location);
       if ((d > 0) && (d < neighbordist)) {
         steer.add(other.velocity);
@@ -125,12 +125,12 @@ class Particle{
   }
   
   //crea una forza relativa alla separazione delle particelle all'interno del particle system
-  PVector separate(){
+  PVector separate(List<Particle> neighbors){
     float sepLevel = 30;
     PVector steer = new PVector(0,0);
     int count = 0;
     
-    for(Particle p : particles){
+    for(Particle p : neighbors){
       float d = PVector.dist(location, p.location);
       if(!p.equals(this) && d < sepLevel){
         PVector diff = PVector.sub(location, p.location);
@@ -173,9 +173,11 @@ class Particle{
         applyForce(seek(cluster).mult(clustM));
       }      
       
-      applyForce(separate().mult(separM));
-      applyForce(cohesion().mult(cohesM));
-      applyForce(align().mult(alignM));
+      //le forze di gruppo considerano solo le particelle nelle celle vicine della griglia
+      List<Particle> neighbors = grid.neighbors(location);
+      applyForce(separate(neighbors).mult(separM));
+      applyForce(cohesion(neighbors).mult(cohesM));
+      applyForce(align(neighbors).mult(alignM));
       
       sumForcesToLocation(cluster);
       
@@ -246,7 +248,6 @@ class Particle{
   
   //processo di renderizzazione del poligono
   void render(){
-    pushMatrix();
     beginShape();
     float opac = map(lifetime, 0, startLifetime, 20, 255);
     fill(c, opac);
@@ -257,7 +258,6 @@ class Particle{
       vertex(vert.x, vert.y);
     }
     endShape(CLOSE);
-    popMatrix();
     
     
     //gestione della lifetime
@@ -288,18 +288,15 @@ class Particle{
     updatePosition();
     
     //processo per la renderizzazione grafica
-    try{
-      render();
-    }catch(Exception e){
-      println("Errore assertion ", e);  
-    }
+    render();
   }
   
   //Restituisce la lista di vertici da raggiungere per ottenere una figura regolare
   ArrayList<PVector> getTargetVertexList() {
     ArrayList<PVector> vectorList = new ArrayList<PVector>(numberOfVertex);
     float angle = TWO_PI / numberOfVertex;
-    for (float a = 0; a < TWO_PI; a += angle) {
+    for (int i = 0; i < numberOfVertex; i++) {
+      float a = i * angle;
       float sx = location.x + cos(a) * (width + height) / MAX_PARTICLES * map(curr_volume, 0, 1, 5, 10);
       float sy = location.y + sin(a) * (width + height) / MAX_PARTICLES * map(curr_volume, 0, 1, 5, 10);
       vectorList.add(new PVector(sx, sy));

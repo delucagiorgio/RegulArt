@@ -1,6 +1,7 @@
 import processing.video.*;
 import gab.opencv.*;
 import java.util.*;
+import java.util.concurrent.*;
 import oscP5.*;
 import netP5.*;
 
@@ -13,6 +14,15 @@ Agent a;
 OscP5 oscP5;
 OscP5 audioOscP5;
 NetAddress location;
+
+//Porte OSC: ricezione dei cluster da msg.py, ricezione dell'audio da mic.py, invio dei punti a msg.py
+final int CLUSTER_PORT_IN = 57121;
+final int AUDIO_PORT_IN = 58121;
+final int CLUSTER_PORT_OUT = 57120;
+
+//Messaggi OSC ricevuti, elaborati all'inizio di ogni draw() sul thread principale
+//per evitare modifiche concorrenti allo stato dello sketch
+Queue<OscMessage> incomingMessages = new ConcurrentLinkedQueue<OscMessage>();
 
 int cam_w;
 int cam_h;
@@ -38,6 +48,10 @@ boolean update = false;
 
 //Lista delle particelle del sistema, al più bands
 List<Particle> particles;
+
+//Griglia per la ricerca delle particelle vicine: la cella deve essere almeno
+//pari al raggio di vicinato più ampio (coesione, 50 pixel)
+SpatialGrid grid;
 
 //Immagine utilizzata in caso si decida di utilizzare il background removal, 
 //in caso di default l'immagine è completamente nera (massimizza l'errore)
@@ -74,9 +88,9 @@ void setup(){
   a = new Agent();
   pointGravityList = new ArrayList<GravityPoint>();
   vectors = new ArrayList<PVector>();
-  oscP5 = new OscP5(this,57121);
-  audioOscP5=new OscP5(this,58121);
-  location = new NetAddress("127.0.0.1",57120);
+  oscP5 = new OscP5(this, CLUSTER_PORT_IN);
+  audioOscP5 = new OscP5(this, AUDIO_PORT_IN);
+  location = new NetAddress("127.0.0.1", CLUSTER_PORT_OUT);
   cam_w = 80;
   cam_h = 60;
   
@@ -94,11 +108,23 @@ void setup(){
   }
   
   particles = new ArrayList<Particle>(MAX_PARTICLES);
-  
+  grid = new SpatialGrid(50);
 }
 
 void draw(){
-  loadPixels(); 
+  //elabora i messaggi OSC arrivati dall'ultimo frame
+  OscMessage msg;
+  while((msg = incomingMessages.poll()) != null){
+    handleMessage(msg);
+  }
+  
+  //acquisizione del frame della webcam e calcolo dell'optical flow
+  if(cam.available()){
+    cam.read();
+    opencv.loadImage(cam.copy());
+    opencv.calculateOpticalFlow();
+    available = true;
+  }
   cam.loadPixels();   
   
   fill(0,255);
@@ -172,19 +198,21 @@ void draw(){
   }
   
   //Al fine di garantire una generazione di nuove particelle su tutta la superficie mostrata,
-  //applichiamo uno shuffle alle nuove particelle in modo che l'inserimento nel particle system di queste non
-  //dipenda dalla posizione che esse occupano all'interno dello schermo
-  //Il fatto che l'array delle velocità e dei colori non abbiano lo stesso ordine non comporta un problema 
-  //di grande entità, dato che il comportamento risulta conforme a quello previsto nel loop immediatamente successivo.
-  Collections.shuffle(movPixels);
+  //mescoliamo l'ordine delle nuove particelle in modo che l'inserimento nel particle system di queste non
+  //dipenda dalla posizione che esse occupano all'interno dello schermo.
+  //Mescoliamo gli indici, così posizione, velocità e colore restano associati allo stesso pixel
+  List<Integer> order = new ArrayList<Integer>(movPixels.size());
+  for(int i = 0; i < movPixels.size(); i++){
+    order.add(i);
+  }
+  Collections.shuffle(order);
   
   
   //Scorriamo inoltre tutto l'array tenendo conto della densità delle nuove particelle rispetto al valore massimo ammesso 
   // dal particle system
-  for(int i = 0; 
-      i < movPixels.size(); 
-      i = min(i + 1 + (movPixels.size() / MAX_PARTICLES),
-              movPixels.size())){
+  int stride = 1 + movPixels.size() / MAX_PARTICLES;
+  for(int k = 0; k < order.size(); k += stride){
+    int i = order.get(k);
     PVector p = movPixels.get(i);
     if(!availableSpots.isEmpty() && particles.size() < MAX_PARTICLES){
       Integer spot_idx = availableSpots.remove((int)random(availableSpots.size()));
@@ -205,6 +233,8 @@ void draw(){
   //==================================================//
   //  Aggiornamento proprietà particelle  //
   //==================================================//
+  grid.rebuild(particles);
+  
   //Per ogni particella attiva del sistema
   for(int i = 0; i < particles.size(); i++){
     
@@ -232,12 +262,6 @@ void draw(){
     //disegna il poligono
     particles.get(i).run();
   }
-}
-
-//calcola la distanza tra due pixel in termini di colori
-float distSq(float x1, float x2, float y1, float y2, float z1, float z2){ 
-  float d = (x2-x1)*(x2-x1) + (y2-y1)*(y2-y1) + (z2-z1)*(z2-z1);
-  return d;
 }
 
 //////// user interaction ////////
@@ -279,9 +303,13 @@ void keyPressed() {
   }
 }
 
-//Evento triggerato automaticamente dal programma quando riceve da una porta
-// un messaggio Osc
+//Evento triggerato automaticamente da oscP5 (su un thread separato) quando riceve
+//da una porta un messaggio Osc: lo accodiamo per elaborarlo in draw()
 void oscEvent(OscMessage msg) {
+  incomingMessages.add(msg);
+}
+
+void handleMessage(OscMessage msg) {
   
     if(msg.checkAddrPattern("/labels")==true) 
   {
@@ -308,9 +336,7 @@ void updateData(OscMessage msg){
   //modifichiamo la x per rendere i punti speculari all'utente
   if(list != null && !list.isEmpty()){
     for(PVector p : list){
-      if(p.x != width / 2){
-        p.x = map(p.x, 0, width, width , 0);
-      }  
+      p.x = map(p.x, 0, width, width , 0);
     }
     
     //aggioriamo la lista di cluster
@@ -353,13 +379,6 @@ void updateData(OscMessage msg){
   vectors = new ArrayList<PVector>();
   //permetti nuovamente l'invio di punti a Python
   update = false;
-}
-
-void captureEvent(Capture cam){
-  cam.read();
-  opencv.loadImage(cam.copy());
-  opencv.calculateOpticalFlow();
-  available = true;
 }
 
 void mousePressed() { 
